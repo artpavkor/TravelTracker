@@ -1,471 +1,315 @@
 <!DOCTYPE html>
 <html lang="ru">
-
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>TravelTracker — друзья на карте</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>TravelTracker — друзья на карте</title>
 
-  <!-- ====== Зависимости через CDN ====== -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // Кастомная тема Tailwind
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: { sans: ['-apple-system', 'SF Pro Display', 'Inter', 'Segoe UI', 'sans-serif'] },
-          colors: {
-            glass: 'rgba(255, 255, 255, 0.72)',
-            ink: '#0f172a',
-          },
-          boxShadow: {
-            card: '0 8px 32px rgba(15, 23, 42, 0.12)',
-            pop: '0 12px 40px rgba(15, 23, 42, 0.22)',
-          }
+<!-- ====== Зависимости через CDN ====== -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Кастомная тема Tailwind
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['-apple-system', 'SF Pro Display', 'Inter', 'Segoe UI', 'sans-serif'] },
+        colors: {
+          glass: 'rgba(255, 255, 255, 0.72)',
+          ink: '#0f172a',
+        },
+        boxShadow: {
+          card: '0 8px 32px rgba(15, 23, 42, 0.12)',
+          pop:  '0 12px 40px rgba(15, 23, 42, 0.22)',
         }
       }
     }
-  </script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  }
+</script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
-  <style>
-    * {
-      -webkit-tap-highlight-color: transparent;
-      box-sizing: border-box;
-    }
+<style>
+  /* ==================== Глобальные стили / Glassmorphism ==================== */
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%; margin: 0; overflow: hidden;
+    font-family: -apple-system, 'SF Pro Display', Inter, 'Segoe UI', sans-serif;
+    background: #0b1220;
+    overscroll-behavior: none;
+  }
 
-    html,
-    body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      font-family: -apple-system, 'SF Pro Display', Inter, 'Segoe UI', sans-serif;
-      background: #0b1220;
-      overscroll-behavior: none;
-    }
+  /* ====== Карта на весь экран ====== */
+  #map { position: fixed; inset: 0; z-index: 0; }
+  .leaflet-container { background: #0b1220; font: inherit; }
+  .leaflet-control-attribution { display: none; } /* чистота интерфейса Mini App */
 
-    #map {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      height: 100dvh;
-      z-index: 0;
-    }
+  /* ====== Стекло ====== */
+  .glass {
+    background: rgba(255, 255, 255, 0.68);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+  }
+  .glass-dark {
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
 
-    .leaflet-container {
-      background: #0b1220;
-      font-family: inherit;
-      width: 100% !important;
-      height: 100% !important;
-    }
+  /* ====== Плавные маркеры (ключ к «дорогой» анимации) ======
+     Leaflet позиционирует иконку через transform: translate3d(...px).
+     CSS-переход по transform сглаживает скачки между тиками геолокации. */
+  .smooth-marker { transition: transform 0.9s cubic-bezier(0.25, 0.8, 0.25, 1); will-change: transform; }
+  .marker-inner {
+    display: flex; align-items: center; justify-content: center;
+    width: 52px; height: 52px; border-radius: 50%;
+    border: 3px solid var(--user-color, #4ECDC4);
+    background-size: cover; background-position: center;
+    box-shadow: 0 6px 20px rgba(15,23,42,.35), 0 0 0 4px rgba(255,255,255,.85);
+    color: #fff; font-weight: 700; font-size: 18px;
+    position: relative;
+  }
+  /* «дыхание» вокруг онлайн-маркера */
+  .marker-inner::after {
+    content: ''; position: absolute; inset: -8px; border-radius: 50%;
+    border: 2px solid var(--user-color, #4ECDC4); opacity: .45;
+    animation: pulse 2.4s ease-out infinite;
+  }
+  @keyframes pulse {
+    0%   { transform: scale(.85); opacity: .5; }
+    70%  { transform: scale(1.25); opacity: 0; }
+    100% { transform: scale(1.25); opacity: 0; }
+  }
 
-    .leaflet-control-attribution {
-      display: none !important;
-    }
+  /* ====== Bottom Sheet ====== */
+  #sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000;
+    height: 78vh; max-height: 78vh;
+    border-radius: 28px 28px 0 0;
+    transform: translateY(calc(100% - 210px));
+    transition: transform .45s cubic-bezier(.32,.72,0,1);
+    display: flex; flex-direction: column;
+    box-shadow: 0 -12px 48px rgba(15,23,42,.25);
+  }
+  #sheet.expanded { transform: translateY(0); }
 
-    /* ⬇️ ТЁМНЫЙ ФИЛЬТР ДЛЯ OSM-КАРТЫ (без API-ключа) */
-    .leaflet-tile-pane {
-      filter: brightness(0.92) contrast(1.15) saturate(0.4) !important;
-    }
+  /* Скроллбар как в iOS */
+  .ios-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .ios-scroll::-webkit-scrollbar { display: none; }
 
-    .glass {
-      background: rgba(255, 255, 255, 0.72);
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
-      border: 1px solid rgba(255, 255, 255, 0.55);
-    }
+  /* Ползунок drag-handle */
+  .handle { width: 44px; height: 5px; border-radius: 99px; background: rgba(15,23,42,.22); margin: 8px auto 4px; }
 
-    .glass-dark {
-      background: rgba(15, 23, 42, 0.65);
-      backdrop-filter: blur(20px) saturate(160%);
-      -webkit-backdrop-filter: blur(20px) saturate(160%);
-      border: 1px solid rgba(255, 255, 255, 0.14);
-    }
+  /* Появление карточек */
+  @keyframes slideUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .card-enter { animation: slideUp .35s ease both; }
 
-    .smooth-marker {
-      transition: transform 0.9s cubic-bezier(0.25, 0.8, 0.25, 1);
-      will-change: transform;
-    }
+  /* Пульс точки «онлайн» */
+  .dot-online { position: relative; }
+  .dot-online::after {
+    content:''; position:absolute; inset:-4px; border-radius:50%;
+    background: currentColor; opacity:.3; animation: pulse 1.8s ease-out infinite;
+  }
 
-    .marker-inner {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      border: 3px solid var(--user-color, #4ECDC4);
-      background-size: cover;
-      background-position: center;
-      box-shadow: 0 6px 20px rgba(15, 23, 42, .4), 0 0 0 3px rgba(255, 255, 255, .9);
-      color: #fff;
-      font-weight: 700;
-      font-size: 16px;
-      position: relative;
-    }
+  input::placeholder { color: rgba(15,23,42,.38); }
 
-    .marker-inner::after {
-      content: '';
-      position: absolute;
-      inset: -8px;
-      border-radius: 50%;
-      border: 2px solid var(--user-color, #4ECDC4);
-      opacity: .4;
-      animation: pulse 2.4s ease-out infinite;
-    }
-
-    @keyframes pulse {
-      0% {
-        transform: scale(.85);
-        opacity: .5;
-      }
-
-      70% {
-        transform: scale(1.25);
-        opacity: 0;
-      }
-
-      100% {
-        transform: scale(1.25);
-        opacity: 0;
-      }
-    }
-
-    #sheet {
-      position: fixed;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: 1000;
-      height: 78vh;
-      max-height: 78vh;
-      border-radius: 28px 28px 0 0;
-      transform: translateY(calc(100% - 210px));
-      transition: transform .45s cubic-bezier(.32, .72, 0, 1);
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 -12px 48px rgba(15, 23, 42, .3);
-    }
-
-    #sheet.expanded {
-      transform: translateY(0);
-    }
-
-    .ios-scroll {
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
-    }
-
-    .ios-scroll::-webkit-scrollbar {
-      display: none;
-    }
-
-    .handle {
-      width: 44px;
-      height: 5px;
-      border-radius: 99px;
-      background: rgba(15, 23, 42, .22);
-      margin: 8px auto 4px;
-    }
-
-    @keyframes slideUp {
-      from {
-        opacity: 0;
-        transform: translateY(14px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    .card-enter {
-      animation: slideUp .35s ease both;
-    }
-
-    .dot-online {
-      position: relative;
-    }
-
-    .dot-online::after {
-      content: '';
-      position: absolute;
-      inset: -4px;
-      border-radius: 50%;
-      background: currentColor;
-      opacity: .3;
-      animation: pulse 1.8s ease-out infinite;
-    }
-
-    input::placeholder {
-      color: rgba(15, 23, 42, .38);
-    }
-
-    .btn-press {
-      transition: transform .12s ease;
-    }
-
-    .btn-press:active {
-      transform: scale(.9);
-    }
-
-    #map-fallback {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      color: #94a3b8;
-      text-align: center;
-      padding: 20px;
-    }
-
-    #map-fallback.visible {
-      display: flex;
-    }
-
-    .verified-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 2px;
-      background: #3b82f6;
-      color: #fff;
-      font-size: 9px;
-      font-weight: 800;
-      padding: 1px 5px;
-      border-radius: 99px;
-      margin-left: 4px;
-      vertical-align: middle;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
-    }
-  </style>
+  /* Компас-стрелка у кнопки центрирования при движении */
+  .btn-press { transition: transform .12s ease; }
+  .btn-press:active { transform: scale(.9); }
+</style>
 </head>
-
 <body class="text-ink">
 
-  <!-- ======================= КАРТА ======================= -->
-  <div id="map"></div>
+<!-- ======================= КАРТА ======================= -->
+<div id="map"></div>
 
-  <!-- ======================= ВЕРХНЯЯ ПАНЕЛЬ ======================= -->
-  <header class="fixed top-0 inset-x-0 z-[1000] px-4 pt-4" style="padding-top: max(16px, env(safe-area-inset-top));">
-    <div class="glass rounded-3xl shadow-card px-5 py-3.5 flex items-center gap-3">
-      <div
-        class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shrink-0">
-        <i data-lucide="navigation-2" class="w-5 h-5 text-white"></i>
-      </div>
-      <div class="min-w-0 flex-1">
-        <h1 class="font-bold text-[17px] leading-tight tracking-tight truncate">TravelTracker</h1>
-        <p class="text-[12px] text-slate-500 truncate">
-          <span id="roomLabel" class="font-semibold text-indigo-600"></span>
-          · <span id="onlineCount">0</span> онлайн
-        </p>
-      </div>
-      <div id="myBatteryChip"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[12px] font-semibold">
-        <i data-lucide="battery-medium" class="w-4 h-4"></i><span id="myBatteryVal">—</span>
-      </div>
+<!-- ======================= ВЕРХНЯЯ ПАНЕЛЬ ======================= -->
+<header class="fixed top-0 inset-x-0 z-[1000] px-4 pt-4" style="padding-top: max(16px, env(safe-area-inset-top));">
+  <div class="glass rounded-3xl shadow-card px-5 py-3.5 flex items-center gap-3">
+    <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shrink-0">
+      <i data-lucide="navigation-2" class="w-5 h-5 text-white"></i>
     </div>
-  </header>
-
-  <!-- ======================= КНОПКА «МОЯ ГЕОЛОКАЦИЯ» ======================= -->
-  <button id="btnCenterMe"
-    class="btn-press fixed right-4 z-[1000] w-12 h-12 rounded-full glass shadow-pop flex items-center justify-center"
-    style="bottom: 236px;" aria-label="Моя геолокация">
-    <i data-lucide="locate-fixed" class="w-5 h-5 text-ink"></i>
-  </button>
-
-  <!-- ======================= BOTTOM SHEET ======================= -->
-  <section id="sheet" class="glass">
-    <div id="sheetHandle" class="pt-2 pb-1 cursor-grab select-none">
-      <div class="handle"></div>
+    <div class="min-w-0 flex-1">
+      <h1 class="font-bold text-[17px] leading-tight tracking-tight truncate">TravelTracker</h1>
+      <p class="text-[12px] text-slate-500 truncate">
+        <span id="roomLabel" class="font-semibold text-indigo-600"></span>
+        · <span id="onlineCount">0</span> онлайн
+      </p>
     </div>
-
-    <!-- Мой статус -->
-    <div class="px-5 pb-3">
-      <div class="flex items-center gap-2 bg-white/60 border border-white/70 rounded-2xl px-4 py-2.5 shadow-sm">
-        <i data-lucide="message-circle" class="w-4 h-4 text-slate-400 shrink-0"></i>
-        <input id="statusInput" maxlength="60" placeholder="Мой статус… например ☕ На пляже"
-          class="flex-1 bg-transparent outline-none text-[15px] font-medium min-w-0">
-      </div>
+    <div id="myBatteryChip" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-600 text-[12px] font-semibold">
+      <i data-lucide="battery-medium" class="w-4 h-4"></i><span id="myBatteryVal">—</span>
     </div>
+  </div>
+</header>
 
-    <!-- Заголовок списка -->
-    <div class="px-6 pb-2 flex items-center justify-between">
-      <h2 class="font-bold text-[15px] tracking-tight">Участники поездки</h2>
-      <span id="onlineCountSheet"
-        class="text-[12px] font-semibold text-slate-500 bg-white/60 px-2.5 py-1 rounded-full">0 онлайн</span>
+<!-- ======================= КНОПКА «МОЯ ГЕОЛОКАЦИЯ» ======================= -->
+<button id="btnCenterMe"
+  class="btn-press fixed right-4 z-[1000] w-12 h-12 rounded-full glass shadow-pop flex items-center justify-center"
+  style="bottom: 236px;" aria-label="Моя геолокация">
+  <i data-lucide="locate-fixed" class="w-5 h-5 text-ink"></i>
+</button>
+
+<!-- ======================= BOTTOM SHEET ======================= -->
+<section id="sheet" class="glass">
+  <div id="sheetHandle" class="pt-2 pb-1 cursor-grab select-none">
+    <div class="handle"></div>
+  </div>
+
+  <!-- Мой статус -->
+  <div class="px-5 pb-3">
+    <div class="flex items-center gap-2 bg-white/60 border border-white/70 rounded-2xl px-4 py-2.5 shadow-sm">
+      <i data-lucide="message-circle" class="w-4 h-4 text-slate-400 shrink-0"></i>
+      <input id="statusInput" maxlength="60" placeholder="Мой статус… например ☕ На пляже"
+        class="flex-1 bg-transparent outline-none text-[15px] font-medium min-w-0">
     </div>
+  </div>
 
-    <!-- Список участников -->
-    <div id="membersList" class="ios-scroll flex-1 px-4 pb-6 space-y-2.5"></div>
-  </section>
+  <!-- Заголовок списка -->
+  <div class="px-6 pb-2 flex items-center justify-between">
+    <h2 class="font-bold text-[15px] tracking-tight">Участники поездки</h2>
+    <span id="onlineCountSheet" class="text-[12px] font-semibold text-slate-500 bg-white/60 px-2.5 py-1 rounded-full">0 онлайн</span>
+  </div>
 
-  <!-- Тост-уведомления -->
-  <div id="toast"
-    class="fixed left-1/2 -translate-x-1/2 z-[2000] glass-dark text-white text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-pop opacity-0 transition-opacity duration-300 pointer-events-none"
-    style="top: max(90px, calc(env(safe-area-inset-top) + 74px));"></div>
+  <!-- Список участников -->
+  <div id="membersList" class="ios-scroll flex-1 px-4 pb-6 space-y-2.5"></div>
+</section>
 
-  <script>
-    /* ============================================================
-       TravelTracker — клиентская логика
-       1. Инициализация Telegram Web App (имя/аватар)
-       2. Комната из ?room=
-       3. Карта Leaflet + плавные HTML-маркеры
-       4. Socket.io: join / location:update / status:update
-       5. Батарея через navigator.getBattery()
-       6. Bottom Sheet с участниками
-    ============================================================ */
+<!-- Тост-уведомления -->
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 z-[2000] glass-dark text-white text-[13px] font-medium px-4 py-2.5 rounded-2xl shadow-pop opacity-0 transition-opacity duration-300 pointer-events-none"
+  style="top: max(90px, calc(env(safe-area-inset-top) + 74px));"></div>
 
-    // -------------------- 0. Telegram Web App --------------------
-    const tg = window.Telegram?.WebApp;
-    tg?.ready();
-    tg?.expand();
-    tg?.setHeaderColor('#0b1220');
-    tg?.setBackgroundColor('#0b1220');
+<script>
+/* ============================================================
+   TravelTracker — клиентская логика
+   1. Инициализация Telegram Web App (имя/аватар)
+   2. Комната из ?room=
+   3. Карта Leaflet + плавные HTML-маркеры
+   4. Socket.io: join / location:update / status:update
+   5. Батарея через navigator.getBattery()
+   6. Bottom Sheet с участниками
+============================================================ */
 
-    const tgUser = tg?.initDataUnsafe?.user || {};
-    const ME = {
-      name: tgUser.first_name
-        ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ')
-        : ('Путешественник ' + Math.floor(Math.random() * 900 + 100)),
-      avatar: tgUser.photo_url || '',
-    };
+// -------------------- 0. Telegram Web App --------------------
+const tg = window.Telegram?.WebApp;
+tg?.ready();
+tg?.expand();
+tg?.setHeaderColor('#0b1220');
+tg?.setBackgroundColor('#0b1220');
 
-    // -------------------- 1. Комната из URL --------------------
-    const ROOM = new URLSearchParams(location.search).get('room') || 'default';
-    document.getElementById('roomLabel').textContent = '#' + ROOM;
+const tgUser = tg?.initDataUnsafe?.user || {};
+const ME = {
+  name:   tgUser.first_name
+          ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ')
+          : ('Путешественник ' + Math.floor(Math.random() * 900 + 100)),
+  avatar: tgUser.photo_url || '',
+};
 
-    // -------------------- 2. Состояние клиента --------------------
-    const state = {
-      myId: null,
-      myPos: null,
-      battery: null,
-      members: new Map(), // id -> {name, avatar, color, lat, lng, battery, status}
-      markers: new Map(), // id -> L.Marker
-    };
+// -------------------- 1. Комната из URL --------------------
+const ROOM = new URLSearchParams(location.search).get('room') || 'default';
+document.getElementById('roomLabel').textContent = '#' + ROOM;
 
-    // -------------------- 3. Карта --------------------
-    // ── Карта ──
-    let map = null;
-    try {
-      if (typeof L === 'undefined') throw new Error('Leaflet not loaded');
+// -------------------- 2. Состояние клиента --------------------
+const state = {
+  myId: null,
+  myPos: null,
+  battery: null,
+  members: new Map(), // id -> {name, avatar, color, lat, lng, battery, status}
+  markers: new Map(), // id -> L.Marker
+};
 
-      map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.61], 13);
+// -------------------- 3. Карта --------------------
+const map = L.map('map', { zoomControl: false, attributionControl: false }).setView([55.75, 37.61], 13);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  maxZoom: 19,
+}).addTo(map);
 
-      // OpenStreetMap — бесплатно, без API-ключа
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        subdomains: 'abc',
-      }).addTo(map);
+// -------------------- 4. Хелперы --------------------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const initials = (name) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
 
-      // Делаем карту тёмной через CSS-фильтр (сохраняем премиальный вид)
-      // Этот стиль добавьте в <style> ниже всех остальных правил:
-      // .leaflet-tile-pane { filter: brightness(0.22) contrast(1.15) saturate(0.4) !important; }
+function haversineMeters(a, b) {
+  const R = 6371000, toRad = (d) => d * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 
-      setTimeout(() => map.invalidateSize(), 100);
-      setTimeout(() => map.invalidateSize(), 500);
-    } catch (e) {
-      console.error('[DIAG] Ошибка карты:', e.message);
-      document.getElementById('map-fallback').classList.add('visible');
-    }
+function formatDistance(m) {
+  if (m == null) return '—';
+  if (m < 1000) return Math.round(m) + ' м';
+  return (m / 1000).toFixed(1) + ' км';
+}
 
-    // -------------------- 4. Хелперы --------------------
-    const $ = (s) => document.querySelector(s);
-    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    const initials = (name) => name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+function batteryMeta(level) {
+  if (level == null) return { icon: 'battery-unknown', cls: 'text-slate-400', label: '—' };
+  if (level <= 15) return { icon: 'battery-low',    cls: 'text-red-500',    label: level + '%' };
+  if (level <= 50) return { icon: 'battery-medium', cls: 'text-amber-500',  label: level + '%' };
+  return { icon: 'battery-full', cls: 'text-emerald-500', label: level + '%' };
+}
 
-    function haversineMeters(a, b) {
-      const R = 6371000, toRad = (d) => d * Math.PI / 180;
-      const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
-      const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-      return 2 * R * Math.asin(Math.sqrt(h));
-    }
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.style.opacity = '0'), 2200);
+}
 
-    function formatDistance(m) {
-      if (m == null) return '—';
-      if (m < 1000) return Math.round(m) + ' м';
-      return (m / 1000).toFixed(1) + ' км';
-    }
+// -------------------- 5. Маркеры --------------------
+function makeMarkerIcon(member, isMe) {
+  const bg = member.avatar
+    ? `background-image:url('${esc(member.avatar)}')`
+    : `background:linear-gradient(135deg, ${member.color}, #0f172a)`;
+  const label = member.avatar ? '' : esc(initials(member.name));
+  const ring = isMe ? '0 0 0 4px #fff, 0 0 0 7px rgba(79,70,229,.6)' : '0 0 0 4px rgba(255,255,255,.85)';
+  return L.divIcon({
+    className: 'smooth-marker',      // плавность — через CSS-переход transform
+    html: `<div class="marker-inner" style="--user-color:${member.color};${bg};box-shadow:0 6px 20px rgba(15,23,42,.35),${ring}">${label}</div>`,
+    iconSize: [52, 52],
+    iconAnchor: [26, 26],            // центр — чтобы не «прыгал» при повороте
+  });
+}
 
-    function batteryMeta(level) {
-      if (level == null) return { icon: 'battery-unknown', cls: 'text-slate-400', label: '—' };
-      if (level <= 15) return { icon: 'battery-low', cls: 'text-red-500', label: level + '%' };
-      if (level <= 50) return { icon: 'battery-medium', cls: 'text-amber-500', label: level + '%' };
-      return { icon: 'battery-full', cls: 'text-emerald-500', label: level + '%' };
-    }
+function upsertMarker(member) {
+  if (member.lat == null) return;
+  let marker = state.markers.get(member.id);
+  if (!marker) {
+    marker = L.marker([member.lat, member.lng], {
+      icon: makeMarkerIcon(member, member.id === state.myId),
+      zIndexOffset: member.id === state.myId ? 1000 : 0,
+    }).addTo(map);
+    marker.bindTooltip(esc(member.name), { direction: 'top', offset: [0, -30], className: 'rounded-xl font-semibold' });
+    state.markers.set(member.id, marker);
+  } else {
+    // Плавное движение: CSS-транзишн на .smooth-marker сглаживает setLatLng
+    marker.setLatLng([member.lat, member.lng]);
+    marker.setIcon(makeMarkerIcon(member, member.id === state.myId));
+  }
+}
 
-    let toastTimer;
-    function toast(msg) {
-      const t = $('#toast');
-      t.textContent = msg;
-      t.style.opacity = '1';
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => (t.style.opacity = '0'), 2200);
-    }
+function removeMarker(id) {
+  const m = state.markers.get(id);
+  if (m) { map.removeLayer(m); state.markers.delete(id); }
+}
 
-    // -------------------- 5. Маркеры --------------------
-    function makeMarkerIcon(member, isMe) {
-      const bg = member.avatar
-        ? `background-image:url('${esc(member.avatar)}')`
-        : `background:linear-gradient(135deg, ${member.color}, #0f172a)`;
-      const label = member.avatar ? '' : esc(initials(member.name));
-      const ring = isMe ? '0 0 0 4px #fff, 0 0 0 7px rgba(79,70,229,.6)' : '0 0 0 4px rgba(255,255,255,.85)';
-      return L.divIcon({
-        className: 'smooth-marker',      // плавность — через CSS-переход transform
-        html: `<div class="marker-inner" style="--user-color:${member.color};${bg};box-shadow:0 6px 20px rgba(15,23,42,.35),${ring}">${label}</div>`,
-        iconSize: [52, 52],
-        iconAnchor: [26, 26],            // центр — чтобы не «прыгал» при повороте
-      });
-    }
+// -------------------- 6. Список участников (Bottom Sheet) --------------------
+function renderMembers() {
+  const list = $('#membersList');
+  const arr = [...state.members.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-    function upsertMarker(member) {
-      if (member.lat == null) return;
-      let marker = state.markers.get(member.id);
-      if (!marker) {
-        marker = L.marker([member.lat, member.lng], {
-          icon: makeMarkerIcon(member, member.id === state.myId),
-          zIndexOffset: member.id === state.myId ? 1000 : 0,
-        }).addTo(map);
-        marker.bindTooltip(esc(member.name), { direction: 'top', offset: [0, -30], className: 'rounded-xl font-semibold' });
-        state.markers.set(member.id, marker);
-      } else {
-        // Плавное движение: CSS-транзишн на .smooth-marker сглаживает setLatLng
-        marker.setLatLng([member.lat, member.lng]);
-        marker.setIcon(makeMarkerIcon(member, member.id === state.myId));
-      }
-    }
-
-    function removeMarker(id) {
-      const m = state.markers.get(id);
-      if (m) { map.removeLayer(m); state.markers.delete(id); }
-    }
-
-    // -------------------- 6. Список участников (Bottom Sheet) --------------------
-    function renderMembers() {
-      const list = $('#membersList');
-      const arr = [...state.members.values()].sort((a, b) => a.name.localeCompare(b.name));
-
-      list.innerHTML = arr.map((m) => {
-        const isMe = m.id === state.myId;
-        const bat = batteryMeta(m.battery);
-        const dist = (isMe || state.myPos == null || m.lat == null) ? null : haversineMeters(state.myPos, m);
-        const avatarHtml = m.avatar
-          ? `<img src="${esc(m.avatar)}" class="w-11 h-11 rounded-full object-cover border-2" style="border-color:${m.color}">`
-          : `<div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-[14px] font-bold border-2" style="background:linear-gradient(135deg,${m.color},#0f172a);border-color:${m.color}">${esc(initials(m.name))}</div>`;
-        return `
+  list.innerHTML = arr.map((m) => {
+    const isMe = m.id === state.myId;
+    const bat = batteryMeta(m.battery);
+    const dist = (isMe || state.myPos == null || m.lat == null) ? null : haversineMeters(state.myPos, m);
+    const avatarHtml = m.avatar
+      ? `<img src="${esc(m.avatar)}" class="w-11 h-11 rounded-full object-cover border-2" style="border-color:${m.color}">`
+      : `<div class="w-11 h-11 rounded-full flex items-center justify-center text-white text-[14px] font-bold border-2" style="background:linear-gradient(135deg,${m.color},#0f172a);border-color:${m.color}">${esc(initials(m.name))}</div>`;
+    return `
     <div class="card-enter bg-white/65 border border-white/80 rounded-3xl p-3.5 shadow-card backdrop-blur-xl" data-member="${m.id}">
       <div class="flex items-center gap-3">
         <div class="relative shrink-0">
@@ -492,195 +336,192 @@
         </button>` : ''}
       </div>
     </div>`;
-      }).join('');
+  }).join('');
 
-      lucide.createIcons();
+  lucide.createIcons();
 
-      // Кнопки «Показать на карте» — плавный полёт к маркеру
-      list.querySelectorAll('[data-focus]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const m = state.members.get(btn.dataset.focus);
-          if (!m || m.lat == null) return;
-          map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 15), { duration: 1.1 });
-          // Подсветить маркер
-          const marker = state.markers.get(m.id);
-          marker?.getElement()?.querySelector('.marker-inner')?.animate(
-            [{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }],
-            { duration: 500, easing: 'ease-in-out' }
-          );
-        });
-      });
-
-      // Счётчики
-      $('#onlineCount').textContent = arr.length;
-      $('#onlineCountSheet').textContent = arr.length + ' онлайн';
-    }
-
-    // -------------------- 7. Батарея --------------------
-    async function initBattery() {
-      if (!navigator.getBattery) return;
-      try {
-        const bat = await navigator.getBattery();
-        const push = () => {
-          state.battery = Math.round(bat.level * 100);
-          $('#myBatteryVal').textContent = state.battery + '%';
-          const meta = batteryMeta(state.battery);
-          const chip = $('#myBatteryChip');
-          chip.className = `flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold bg-white/50 ${meta.cls}`;
-          sendLocation(); // перешлём свежий процент вместе с координатами
-        };
-        bat.addEventListener('levelchange', push);
-        bat.addEventListener('chargingchange', push);
-        push();
-      } catch { /* API недоступен — тихо работаем без батареи */ }
-    }
-
-    // -------------------- 8. Геолокация --------------------
-    let lastSent = 0;
-    function sendLocation(force) {
-      if (!state.myPos || !socket.connected) return;
-      const now = Date.now();
-      if (!force && now - lastSent < 2000) return; // 0.5 Гц — бережём батарею
-      lastSent = now;
-      socket.emit('location:update', {
-        lat: state.myPos.lat, lng: state.myPos.lng, battery: state.battery,
-      });
-    }
-
-    function initGeolocation() {
-      if (!navigator.geolocation) { toast('Геолокация не поддерживается'); return; }
-      navigator.geolocation.watchPosition(
-        (pos) => {
-          state.myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          upsertMarker({
-            id: state.myId, name: ME.name, avatar: ME.avatar, color: myColor,
-            lat: state.myPos.lat, lng: state.myPos.lng, battery: state.battery
-          });
-          sendLocation();
-        },
-        (err) => toast('Нет доступа к геолокации: ' + err.message),
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  // Кнопки «Показать на карте» — плавный полёт к маркеру
+  list.querySelectorAll('[data-focus]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const m = state.members.get(btn.dataset.focus);
+      if (!m || m.lat == null) return;
+      map.flyTo([m.lat, m.lng], Math.max(map.getZoom(), 15), { duration: 1.1 });
+      // Подсветить маркер
+      const marker = state.markers.get(m.id);
+      marker?.getElement()?.querySelector('.marker-inner')?.animate(
+        [{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }],
+        { duration: 500, easing: 'ease-in-out' }
       );
-    }
-
-    // -------------------- 9. Socket.io --------------------
-    const socket = io({
-      transports: ['websocket', 'polling'],
-      reconnectionDelay: 1500,
     });
+  });
 
-    let myColor = '#4ECDC4';
+  // Счётчики
+  $('#onlineCount').textContent = arr.length;
+  $('#onlineCountSheet').textContent = arr.length + ' онлайн';
+}
 
-    socket.on('connect', () => {
-      state.myId = socket.id;
-      socket.emit('join', {
-        room: ROOM,
-        name: ME.name,
-        avatar: ME.avatar,
-        lat: state.myPos?.lat,
-        lng: state.myPos?.lng,
-        battery: state.battery,
-        status: $('#statusInput').value.trim() || undefined,
-      });
-    });
+// -------------------- 7. Батарея --------------------
+async function initBattery() {
+  if (!navigator.getBattery) return;
+  try {
+    const bat = await navigator.getBattery();
+    const push = () => {
+      state.battery = Math.round(bat.level * 100);
+      $('#myBatteryVal').textContent = state.battery + '%';
+      const meta = batteryMeta(state.battery);
+      const chip = $('#myBatteryChip');
+      chip.className = `flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold bg-white/50 ${meta.cls}`;
+      sendLocation(); // перешлём свежий процент вместе с координатами
+    };
+    bat.addEventListener('levelchange', push);
+    bat.addEventListener('chargingchange', push);
+    push();
+  } catch { /* API недоступен — тихо работаем без батареи */ }
+}
 
-    socket.on('room:state', ({ users }) => {
-      state.members.clear();
-      users.forEach((u) => state.members.set(u.id, u));
-      myColor = state.members.get(state.myId)?.color || myColor;
-      upsertMarker(state.members.get(state.myId));
-      users.forEach(upsertMarker);
-      renderMembers();
-    });
+// -------------------- 8. Геолокация --------------------
+let lastSent = 0;
+function sendLocation(force) {
+  if (!state.myPos || !socket.connected) return;
+  const now = Date.now();
+  if (!force && now - lastSent < 2000) return; // 0.5 Гц — бережём батарею
+  lastSent = now;
+  socket.emit('location:update', {
+    lat: state.myPos.lat, lng: state.myPos.lng, battery: state.battery,
+  });
+}
 
-    socket.on('user:joined', (u) => {
-      state.members.set(u.id, u);
-      upsertMarker(u);
-      renderMembers();
-      if (u.id !== state.myId) toast(`${u.name} присоединился к поездке`);
-    });
+function initGeolocation() {
+  if (!navigator.geolocation) { toast('Геолокация не поддерживается'); return; }
+  navigator.geolocation.watchPosition(
+    (pos) => {
+      state.myPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      upsertMarker({ id: state.myId, name: ME.name, avatar: ME.avatar, color: myColor,
+                    lat: state.myPos.lat, lng: state.myPos.lng, battery: state.battery });
+      sendLocation();
+    },
+    (err) => toast('Нет доступа к геолокации: ' + err.message),
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
 
-    socket.on('user:moved', ({ id, lat, lng, battery }) => {
-      const m = state.members.get(id);
-      if (!m) return;
-      m.lat = lat; m.lng = lng;
-      if (battery != null) m.battery = battery;
-      upsertMarker(m);
-      renderMembers();
-    });
+// -------------------- 9. Socket.io --------------------
+const socket = io({
+  transports: ['websocket', 'polling'],
+  reconnectionDelay: 1500,
+});
 
-    socket.on('user:status', ({ id, status }) => {
-      const m = state.members.get(id);
-      if (!m) return;
-      m.status = status;
-      renderMembers();
-    });
+let myColor = '#4ECDC4';
 
-    socket.on('user:left', ({ id }) => {
-      const m = state.members.get(id);
-      state.members.delete(id);
-      removeMarker(id);
-      renderMembers();
-      if (m) toast(`${m.name} вышел из трекера`);
-    });
+socket.on('connect', () => {
+  state.myId = socket.id;
+  socket.emit('join', {
+    room: ROOM,
+    name: ME.name,
+    avatar: ME.avatar,
+    lat: state.myPos?.lat,
+    lng: state.myPos?.lng,
+    battery: state.battery,
+    status: $('#statusInput').value.trim() || undefined,
+  });
+});
 
-    socket.on('disconnect', () => toast('Соединение потеряно, переподключаемся…'));
+socket.on('room:state', ({ users }) => {
+  state.members.clear();
+  users.forEach((u) => state.members.set(u.id, u));
+  myColor = state.members.get(state.myId)?.color || myColor;
+  upsertMarker(state.members.get(state.myId));
+  users.forEach(upsertMarker);
+  renderMembers();
+});
 
-    // -------------------- 10. Статус --------------------
-    let statusTimer;
-    $('#statusInput').addEventListener('input', () => {
-      clearTimeout(statusTimer);
-      statusTimer = setTimeout(() => {
-        const s = $('#statusInput').value.trim() || '🧭 В пути';
-        socket.emit('status:update', { status: s });
-        const me = state.members.get(state.myId);
-        if (me) { me.status = s; renderMembers(); }
-      }, 400); // дебаунс, чтобы не спамить сервер
-    });
+socket.on('user:joined', (u) => {
+  state.members.set(u.id, u);
+  upsertMarker(u);
+  renderMembers();
+  if (u.id !== state.myId) toast(`${u.name} присоединился к поездке`);
+});
 
-    // -------------------- 11. Bottom Sheet: drag / tap --------------------
-    (() => {
-      const sheet = $('#sheet');
-      let startY = 0, dragging = false;
+socket.on('user:moved', ({ id, lat, lng, battery }) => {
+  const m = state.members.get(id);
+  if (!m) return;
+  m.lat = lat; m.lng = lng;
+  if (battery != null) m.battery = battery;
+  upsertMarker(m);
+  renderMembers();
+});
 
-      const onStart = (y) => { startY = y; dragging = true; sheet.style.transition = 'none'; };
-      const onMove = (y) => {
-        if (!dragging) return;
-        const dy = y - startY;
-        const base = sheet.classList.contains('expanded') ? 0 : sheet.offsetHeight - 210;
-        sheet.style.transform = `translateY(${Math.max(0, Math.min(sheet.offsetHeight, base + dy))}px)`;
-      };
-      const onEnd = (y) => {
-        if (!dragging) return;
-        dragging = false;
-        sheet.style.transition = '';
-        sheet.style.transform = '';
-        const dy = y - startY;
-        if (dy < -60) sheet.classList.add('expanded');
-        else if (dy > 60) sheet.classList.remove('expanded');
-      };
+socket.on('user:status', ({ id, status }) => {
+  const m = state.members.get(id);
+  if (!m) return;
+  m.status = status;
+  renderMembers();
+});
 
-      const handle = $('#sheetHandle');
-      handle.addEventListener('touchstart', (e) => onStart(e.touches[0].clientY), { passive: true });
-      window.addEventListener('touchmove', (e) => onMove(e.touches[0].clientY), { passive: true });
-      window.addEventListener('touchend', (e) => onEnd(e.changedTouches[0].clientY));
-      handle.addEventListener('mousedown', (e) => onStart(e.clientY));
-      window.addEventListener('mousemove', (e) => onMove(e.clientY));
-      window.addEventListener('mouseup', (e) => onEnd(e.clientY));
-    })();
+socket.on('user:left', ({ id }) => {
+  const m = state.members.get(id);
+  state.members.delete(id);
+  removeMarker(id);
+  renderMembers();
+  if (m) toast(`${m.name} вышел из трекера`);
+});
 
-    // -------------------- 12. «Моя геолокация» --------------------
-    $('#btnCenterMe').addEventListener('click', () => {
-      if (!state.myPos) { toast('Геолокация ещё не определена'); return; }
-      map.flyTo([state.myPos.lat, state.myPos.lng], Math.max(map.getZoom(), 15), { duration: 1 });
-    });
+socket.on('disconnect', () => toast('Соединение потеряно, переподключаемся…'));
 
-    // -------------------- 13. Старт --------------------
-    initBattery();
-    initGeolocation();
-    lucide.createIcons();
-    document.addEventListener('click', () => lucide.createIcons()); // иконки в динамическом списке
-  </script>
+// -------------------- 10. Статус --------------------
+let statusTimer;
+$('#statusInput').addEventListener('input', () => {
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => {
+    const s = $('#statusInput').value.trim() || '🧭 В пути';
+    socket.emit('status:update', { status: s });
+    const me = state.members.get(state.myId);
+    if (me) { me.status = s; renderMembers(); }
+  }, 400); // дебаунс, чтобы не спамить сервер
+});
+
+// -------------------- 11. Bottom Sheet: drag / tap --------------------
+(() => {
+  const sheet = $('#sheet');
+  let startY = 0, dragging = false;
+
+  const onStart = (y) => { startY = y; dragging = true; sheet.style.transition = 'none'; };
+  const onMove = (y) => {
+    if (!dragging) return;
+    const dy = y - startY;
+    const base = sheet.classList.contains('expanded') ? 0 : sheet.offsetHeight - 210;
+    sheet.style.transform = `translateY(${Math.max(0, Math.min(sheet.offsetHeight, base + dy))}px)`;
+  };
+  const onEnd = (y) => {
+    if (!dragging) return;
+    dragging = false;
+    sheet.style.transition = '';
+    sheet.style.transform = '';
+    const dy = y - startY;
+    if (dy < -60) sheet.classList.add('expanded');
+    else if (dy > 60) sheet.classList.remove('expanded');
+  };
+
+  const handle = $('#sheetHandle');
+  handle.addEventListener('touchstart', (e) => onStart(e.touches[0].clientY), { passive: true });
+  window.addEventListener('touchmove', (e) => onMove(e.touches[0].clientY), { passive: true });
+  window.addEventListener('touchend', (e) => onEnd(e.changedTouches[0].clientY));
+  handle.addEventListener('mousedown', (e) => onStart(e.clientY));
+  window.addEventListener('mousemove', (e) => onMove(e.clientY));
+  window.addEventListener('mouseup', (e) => onEnd(e.clientY));
+})();
+
+// -------------------- 12. «Моя геолокация» --------------------
+$('#btnCenterMe').addEventListener('click', () => {
+  if (!state.myPos) { toast('Геолокация ещё не определена'); return; }
+  map.flyTo([state.myPos.lat, state.myPos.lng], Math.max(map.getZoom(), 15), { duration: 1 });
+});
+
+// -------------------- 13. Старт --------------------
+initBattery();
+initGeolocation();
+lucide.createIcons();
+document.addEventListener('click', () => lucide.createIcons()); // иконки в динамическом списке
+</script>
 </body>
-
 </html>
